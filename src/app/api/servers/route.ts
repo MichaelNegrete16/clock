@@ -1,31 +1,42 @@
 import { NextResponse } from "next/server";
-import fs from "fs/promises";
-import path from "path";
+import { kv } from "@vercel/kv";
 
-const DATA_FILE = path.join(process.cwd(), "data", "servers.json");
+const STORAGE_KEY = "server-monitor-data";
 
-// Asegurar que el archivo existe
-async function ensureDataFile() {
-  try {
-    await fs.access(DATA_FILE);
-  } catch {
-    const initialData = {
-      servers: [],
-      interval: 1,
-      isRunning: false,
-    };
-    await fs.writeFile(DATA_FILE, JSON.stringify(initialData, null, 2));
-  }
+interface ServerData {
+  servers: Array<{
+    id: number;
+    url: string;
+    status: "idle" | "success" | "warning" | "error";
+    lastPing: string;
+    responseTime: number | null;
+    errorCount: number;
+  }>;
+  interval: number;
+  isRunning: boolean;
 }
+
+// Datos iniciales
+const defaultData: ServerData = {
+  servers: [],
+  interval: 1,
+  isRunning: false,
+};
 
 // GET - Obtener servidores
 export async function GET() {
   try {
-    await ensureDataFile();
-    const data = await fs.readFile(DATA_FILE, "utf-8");
-    return NextResponse.json(JSON.parse(data));
+    const data = await kv.get<ServerData>(STORAGE_KEY);
+
+    // Si no hay datos, devolver los valores por defecto
+    if (!data) {
+      await kv.set(STORAGE_KEY, defaultData);
+      return NextResponse.json(defaultData);
+    }
+
+    return NextResponse.json(data);
   } catch (error) {
-    console.error("Error leyendo servidores:", error);
+    console.error("Error leyendo datos de KV:", error);
     return NextResponse.json({ error: "Error al leer datos" }, { status: 500 });
   }
 }
@@ -34,11 +45,10 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    await ensureDataFile();
-    await fs.writeFile(DATA_FILE, JSON.stringify(body, null, 2));
+    await kv.set(STORAGE_KEY, body);
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error guardando servidores:", error);
+    console.error("Error guardando datos en KV:", error);
     return NextResponse.json(
       { error: "Error al guardar datos" },
       { status: 500 }
