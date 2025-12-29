@@ -498,8 +498,11 @@ export default function ServerMonitor() {
                 <p style={{ fontWeight: "500", margin: 0 }}>Cómo funciona:</p>
                 <p style={{ marginTop: "0.25rem" }}>
                   Esta herramienta hace peticiones HTTP a tus servidores para
-                  mantenerlos activos. Los datos se guardan en el servidor y el
-                  monitoreo continúa mientras la página esté abierta.
+                  mantenerlos activos. Los datos se guardan en el servidor y{" "}
+                  <strong>
+                    los pings se ejecutan automáticamente cada minuto
+                  </strong>{" "}
+                  en el backend, incluso si cierras esta página.
                 </p>
               </div>
             </div>
