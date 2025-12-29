@@ -1,0 +1,14 @@
+{
+  "servers": [
+    {
+      "id": 1767033262829,
+      "url": "https://clock-plum-beta.vercel.app/",
+      "status": "success",
+      "lastPing": "13:35:30",
+      "responseTime": 106,
+      "errorCount": 0
+    }
+  ],
+  "interval": 1,
+  "isRunning": true
+}

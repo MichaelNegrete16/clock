@@ -18,12 +18,19 @@ interface Log {
   type: "success" | "error" | "warning" | "info";
 }
 
+interface ServerData {
+  servers: Server[];
+  interval: number;
+  isRunning: boolean;
+}
+
 export default function ServerMonitor() {
   const [servers, setServers] = useState<Server[]>([]);
   const [newUrl, setNewUrl] = useState("");
   const [isRunning, setIsRunning] = useState(false);
-  const [pingInterval, setPingInterval] = useState(1); // Renombrado de interval a pingInterval
+  const [pingInterval, setPingInterval] = useState(1);
   const [logs, setLogs] = useState<Log[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const serversRef = useRef<Server[]>([]);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -43,55 +50,86 @@ export default function ServerMonitor() {
     );
   };
 
-  // Cargar servidores y configuración desde localStorage al montar
+  // Cargar datos desde la API
+  const loadData = async () => {
+    try {
+      console.log("📥 [loadData] Cargando datos desde la API...");
+      const response = await fetch("/api/servers");
+      if (!response.ok) throw new Error("Error al cargar datos");
+
+      const data: ServerData = await response.json();
+      console.log("✅ [loadData] Datos cargados:", data);
+
+      setServers(data.servers || []);
+      serversRef.current = data.servers || [];
+      setPingInterval(data.interval || 1);
+      setIsRunning(data.isRunning || false);
+
+      if (data.isRunning) {
+        addLog("▶ Monitoreo reanudado automáticamente", "info");
+      }
+    } catch (error) {
+      console.error("❌ [loadData] Error:", error);
+      addLog("Error al cargar datos del servidor", "error");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Guardar datos en la API
+  const saveData = async (
+    newServers?: Server[],
+    newInterval?: number,
+    newIsRunning?: boolean
+  ) => {
+    try {
+      const dataToSave: ServerData = {
+        servers: newServers !== undefined ? newServers : servers,
+        interval: newInterval !== undefined ? newInterval : pingInterval,
+        isRunning: newIsRunning !== undefined ? newIsRunning : isRunning,
+      };
+
+      console.log("💾 [saveData] Guardando datos:", dataToSave);
+
+      const response = await fetch("/api/servers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dataToSave),
+      });
+
+      if (!response.ok) throw new Error("Error al guardar datos");
+      console.log("✅ [saveData] Datos guardados correctamente");
+    } catch (error) {
+      console.error("❌ [saveData] Error:", error);
+      addLog("Error al guardar datos en el servidor", "error");
+    }
+  };
+
+  // Cargar datos al montar el componente
   useEffect(() => {
-    const savedServers = localStorage.getItem("monitorServers");
-    const savedInterval = localStorage.getItem("monitorInterval");
-    const savedIsRunning = localStorage.getItem("monitorIsRunning");
-
-    if (savedServers) {
-      try {
-        const parsed = JSON.parse(savedServers);
-        setServers(parsed);
-        serversRef.current = parsed;
-      } catch (error) {
-        console.error("Error al cargar servidores:", error);
-      }
-    }
-
-    if (savedInterval) {
-      const parsedInterval = parseInt(savedInterval);
-      if (!isNaN(parsedInterval) && parsedInterval > 0) {
-        setPingInterval(parsedInterval);
-      }
-    }
-
-    if (savedIsRunning === "true") {
-      setIsRunning(true);
-      addLog("▶ Monitoreo reanudado automáticamente", "info");
-    }
+    loadData();
   }, []);
 
-  // Guardar servidores en localStorage cuando cambien
+  // Guardar servidores cuando cambien
   useEffect(() => {
-    if (servers.length > 0) {
-      localStorage.setItem("monitorServers", JSON.stringify(servers));
-    } else {
-      localStorage.removeItem("monitorServers");
+    if (!isLoading) {
+      saveData(servers);
+      serversRef.current = servers;
     }
-    serversRef.current = servers;
   }, [servers]);
 
-  // Guardar intervalo en localStorage
+  // Guardar intervalo cuando cambie
   useEffect(() => {
-    if (pingInterval && !isNaN(pingInterval)) {
-      localStorage.setItem("monitorInterval", pingInterval.toString());
+    if (!isLoading && pingInterval && !isNaN(pingInterval)) {
+      saveData(undefined, pingInterval);
     }
   }, [pingInterval]);
 
-  // Guardar estado de monitoreo en localStorage
+  // Guardar estado de monitoreo cuando cambie
   useEffect(() => {
-    localStorage.setItem("monitorIsRunning", isRunning.toString());
+    if (!isLoading) {
+      saveData(undefined, undefined, isRunning);
+    }
   }, [isRunning]);
 
   const checkWithImage = (id: number, url: string, timestamp: string) => {
@@ -286,7 +324,6 @@ export default function ServerMonitor() {
 
   // Efecto para el monitoreo automático usando la referencia
   useEffect(() => {
-    // Limpiar intervalo anterior si existe
     if (intervalRef.current) {
       console.log("🧹 [useEffect] Limpiando intervalo anterior");
       clearInterval(intervalRef.current);
@@ -306,13 +343,11 @@ export default function ServerMonitor() {
       serversRef.current.map((s) => s.url)
     );
 
-    // Hacer ping inicial inmediatamente al iniciar
     console.log("🚀 [useEffect] Ejecutando ping inicial...");
     serversRef.current.forEach((server) => {
       pingServer(server.id, server.url);
     });
 
-    // Configurar el intervalo para pings posteriores
     intervalRef.current = setInterval(() => {
       console.log(
         `⏰ [setInterval] Ejecutando ping automático (cada ${pingInterval} minutos)`
@@ -330,7 +365,6 @@ export default function ServerMonitor() {
       `✅ [useEffect] Intervalo configurado: ID=${intervalRef.current}`
     );
 
-    // Cleanup al desmontar o cuando cambie la dependencia
     return () => {
       console.log(
         "🧹 [useEffect cleanup] Limpiando intervalo al desmontar o cambiar dependencias"
@@ -383,6 +417,27 @@ export default function ServerMonitor() {
   const pingNow = (id: number, url: string) => {
     pingServer(id, url);
   };
+
+  if (isLoading) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "linear-gradient(to bottom right, #0f172a, #1e293b)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "white",
+          fontSize: "1.5rem",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>⚡</div>
+          <p>Cargando monitor...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -443,7 +498,7 @@ export default function ServerMonitor() {
                 <p style={{ fontWeight: "500", margin: 0 }}>Cómo funciona:</p>
                 <p style={{ marginTop: "0.25rem" }}>
                   Esta herramienta hace peticiones HTTP a tus servidores para
-                  mantenerlos activos. Los datos se guardan localmente y el
+                  mantenerlos activos. Los datos se guardan en el servidor y el
                   monitoreo continúa mientras la página esté abierta.
                 </p>
               </div>
